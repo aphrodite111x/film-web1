@@ -5,9 +5,10 @@ import { Series, Episode } from '../types';
 import HLSVideoPlayer from '../components/HLSVideoPlayer';
 import VideoUploadModal from '../components/VideoUploadModal';
 import { useAuth } from '../contexts/AuthContext';
+import { createSlug } from '../utils/slugUtils';
 
 const EpisodePlayerPage: React.FC = () => {
-  const { seriesId, episodeNumber } = useParams<{ seriesId: string; episodeNumber: string }>();
+  const { seriesSlug, episodeNumber } = useParams<{ seriesSlug: string; episodeNumber: string }>();
   const navigate = useNavigate();
   
   const [series, setSeries] = useState<Series | null>(null);
@@ -25,6 +26,7 @@ const EpisodePlayerPage: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasStartedWatching, setHasStartedWatching] = useState(false);
   const [actualResumeTime, setActualResumeTime] = useState(0);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   const { user, getResumePrompt } = useAuth();
 
@@ -35,19 +37,19 @@ const EpisodePlayerPage: React.FC = () => {
 
   // Load series and episode data
   useEffect(() => {
-    if (seriesId && episodeNumber) {
+    if (seriesSlug && episodeNumber) {
       loadSeriesAndEpisodeData();
     }
-  }, [seriesId, episodeNumber]);
+  }, [seriesSlug, episodeNumber]);
 
   const loadSeriesAndEpisodeData = async () => {
     try {
       setIsLoading(true);
       setError(null);
 
-      console.log(`🔍 EpisodePlayerPage: Looking for series ID: "${seriesId}", episode: ${episodeNumber}`);
+      console.log(`🔍 EpisodePlayerPage: Looking for series with slug: "${seriesSlug}", episode: ${episodeNumber}`);
 
-      // Get series from database
+      // Get all series from database
       const response = await fetch('http://localhost:3001/api/series');
       const data = await response.json();
       
@@ -56,12 +58,37 @@ const EpisodePlayerPage: React.FC = () => {
       if (data.success) {
         console.log('📊 Available series from database:', data.series.length);
         
-        // Find series by ID
-        const foundSeries = data.series.find((s: any) => s.id === seriesId);
+        // Debug: Show all series with their generated slugs
+        const seriesWithSlugs = data.series.map((s: any) => {
+          const generatedSlug = createSlug(s.title);
+          console.log(`🔗 Series: "${s.title}" → slug: "${generatedSlug}"`);
+          return {
+            id: s.id,
+            title: s.title,
+            slug: generatedSlug,
+            originalData: s
+          };
+        });
+
+        setDebugInfo({
+          searchSlug: seriesSlug,
+          searchEpisode: episodeNumber,
+          availableSeries: seriesWithSlugs,
+          totalSeries: data.series.length
+        });
+
+        // Find series by slug - CASE INSENSITIVE
+        const foundSeries = data.series.find((s: any) => {
+          const generatedSlug = createSlug(s.title);
+          const match = generatedSlug.toLowerCase() === seriesSlug?.toLowerCase();
+          console.log(`🔗 Comparing "${generatedSlug}" with "${seriesSlug}" → ${match ? '✅ MATCH' : '❌ NO MATCH'}`);
+          return match;
+        });
 
         if (!foundSeries) {
-          console.error(`❌ No series found for ID: "${seriesId}"`);
-          setError(`Series không tồn tại. ID tìm kiếm: "${seriesId}"`);
+          console.error(`❌ No series found for slug: "${seriesSlug}"`);
+          console.log('🔍 Available slugs:', seriesWithSlugs.map(s => s.slug));
+          setError(`Series không tồn tại. Slug tìm kiếm: "${seriesSlug}"`);
           return;
         }
 
@@ -144,7 +171,7 @@ const EpisodePlayerPage: React.FC = () => {
         setCurrentEpisode(episode);
         
         // Load video data using series ID and episode number
-        loadVideoData(seriesId, epNum);
+        loadVideoData(foundSeries.id, epNum);
       } else {
         console.error('❌ API Error:', data.error);
         setError('Không thể tải dữ liệu series từ database');
@@ -158,8 +185,8 @@ const EpisodePlayerPage: React.FC = () => {
   };
 
   // Load video data using series ID and episode number
-  const loadVideoData = useCallback(async (sId: string, epNumber: number) => {
-    const videoKey = `${sId}-${epNumber}`;
+  const loadVideoData = useCallback(async (seriesId: string, epNumber: number) => {
+    const videoKey = `${seriesId}-${epNumber}`;
     
     if (loadedVideoRef.current === videoKey || isLoadingRef.current) {
       return;
@@ -170,10 +197,10 @@ const EpisodePlayerPage: React.FC = () => {
     setLoadError(null);
     
     try {
-      console.log(`🔍 Loading video for series ID "${sId}" episode ${epNumber}`);
+      console.log(`🔍 Loading video for series ID "${seriesId}" episode ${epNumber}`);
       
       // Use the correct API endpoint that matches server
-      const response = await fetch(`http://localhost:3001/api/videos/${sId}/${epNumber}`);
+      const response = await fetch(`http://localhost:3001/api/videos/${seriesId}/${epNumber}`);
       const data = await response.json();
       
       console.log('📹 Video API Response:', data);
@@ -252,8 +279,9 @@ const EpisodePlayerPage: React.FC = () => {
       const nextEpisode = currentIndex < series.episodes.length - 1 ? series.episodes[currentIndex + 1] : null;
       
       if (nextEpisode) {
-        console.log(`⏭️ Next episode: /series/${series.id}/episode/${nextEpisode.number}`);
-        navigate(`/series/${series.id}/episode/${nextEpisode.number}`);
+        const slug = createSlug(series.title);
+        console.log(`⏭️ Next episode: /series/${slug}/tap/${nextEpisode.number}`);
+        navigate(`/series/${slug}/tap/${nextEpisode.number}`);
       }
     }
   };
@@ -264,22 +292,25 @@ const EpisodePlayerPage: React.FC = () => {
       const prevEpisode = currentIndex > 0 ? series.episodes[currentIndex - 1] : null;
       
       if (prevEpisode) {
-        console.log(`⏮️ Previous episode: /series/${series.id}/episode/${prevEpisode.number}`);
-        navigate(`/series/${series.id}/episode/${prevEpisode.number}`);
+        const slug = createSlug(series.title);
+        console.log(`⏮️ Previous episode: /series/${slug}/tap/${prevEpisode.number}`);
+        navigate(`/series/${slug}/tap/${prevEpisode.number}`);
       }
     }
   };
 
   const handleEpisodeChange = (episode: Episode) => {
     if (series) {
-      console.log(`🔄 Episode change: /series/${series.id}/episode/${episode.number}`);
-      navigate(`/series/${series.id}/episode/${episode.number}`);
+      const slug = createSlug(series.title);
+      console.log(`🔄 Episode change: /series/${slug}/tap/${episode.number}`);
+      navigate(`/series/${slug}/tap/${episode.number}`);
     }
   };
 
   const handleGoBack = () => {
     if (series) {
-      navigate(`/series/${series.id}`);
+      const slug = createSlug(series.title);
+      navigate(`/series/${slug}`);
     } else {
       navigate('/');
     }
@@ -305,8 +336,8 @@ const EpisodePlayerPage: React.FC = () => {
       duration: uploadedVideoData.duration,
       status: 'completed'
     });
-    if (seriesId && currentEpisode) {
-      loadedVideoRef.current = `${seriesId}-${currentEpisode.number}`;
+    if (series && currentEpisode) {
+      loadedVideoRef.current = `${series.id}-${currentEpisode.number}`;
     }
   };
 
@@ -349,7 +380,7 @@ const EpisodePlayerPage: React.FC = () => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-white text-xl">Đang tải episode...</p>
-          <p className="text-gray-400 text-sm mt-2">Series ID: {seriesId}, Episode: {episodeNumber}</p>
+          <p className="text-gray-400 text-sm mt-2">Slug: {seriesSlug}, Episode: {episodeNumber}</p>
           <p className="text-gray-400 text-xs mt-1">Đang kết nối database...</p>
         </div>
       </div>
@@ -365,20 +396,43 @@ const EpisodePlayerPage: React.FC = () => {
           <h2 className="text-2xl font-bold text-white mb-4">Trang không tồn tại</h2>
           <p className="text-xl text-gray-300 mb-4">Xin lỗi, trang bạn đang tìm kiếm không tồn tại hoặc đã bị di chuyển.</p>
           
-          <div className="bg-gray-800 rounded-lg p-6 mb-8 text-left">
-            <h3 className="text-white font-semibold mb-4">🔍 Debug Information:</h3>
-            <div className="space-y-2 text-sm">
-              <p className="text-gray-300">
-                <span className="text-blue-400">Series ID tìm kiếm:</span> "{seriesId}"
-              </p>
-              <p className="text-gray-300">
-                <span className="text-blue-400">Episode tìm kiếm:</span> {episodeNumber}
-              </p>
-              <p className="text-gray-300">
-                <span className="text-red-400">Lỗi:</span> {error}
-              </p>
+          {/* Debug Information */}
+          {debugInfo && (
+            <div className="bg-gray-800 rounded-lg p-6 mb-8 text-left">
+              <h3 className="text-white font-semibold mb-4">🔍 Debug Information:</h3>
+              <div className="space-y-2 text-sm">
+                <p className="text-gray-300">
+                  <span className="text-blue-400">Slug tìm kiếm:</span> "{debugInfo.searchSlug}"
+                </p>
+                <p className="text-gray-300">
+                  <span className="text-blue-400">Episode tìm kiếm:</span> {debugInfo.searchEpisode}
+                </p>
+                <p className="text-gray-300">
+                  <span className="text-blue-400">Tổng series trong DB:</span> {debugInfo.totalSeries}
+                </p>
+                <p className="text-gray-300">
+                  <span className="text-red-400">Lỗi:</span> {error}
+                </p>
+                <div className="text-gray-300">
+                  <span className="text-blue-400">Series có sẵn:</span>
+                  <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                    {debugInfo.availableSeries.map((s: any, index: number) => (
+                      <div key={index} className="text-xs bg-gray-700 p-2 rounded">
+                        <span className="text-green-400">"{s.title}"</span> → 
+                        <span className="text-yellow-400"> "{s.slug}"</span>
+                        <button
+                          onClick={() => navigate(`/series/${s.slug}`)}
+                          className="ml-2 text-blue-400 hover:text-blue-300 underline"
+                        >
+                          Thử link này
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
@@ -461,7 +515,7 @@ const EpisodePlayerPage: React.FC = () => {
               <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
               <p className="text-white text-xl">Đang kiểm tra video...</p>
               <p className="text-gray-300 text-sm mt-2">Tìm kiếm video cho tập {episodeNumber}...</p>
-              <p className="text-gray-400 text-xs mt-1">Using series ID "{seriesId}"</p>
+              <p className="text-gray-400 text-xs mt-1">Using series slug "{seriesSlug}"</p>
             </div>
           </div>
         ) : loadError ? (
@@ -473,8 +527,8 @@ const EpisodePlayerPage: React.FC = () => {
               <button
                 onClick={() => {
                   loadedVideoRef.current = null;
-                  if (seriesId && currentEpisode) {
-                    loadVideoData(seriesId, currentEpisode.number);
+                  if (series && currentEpisode) {
+                    loadVideoData(series.id, currentEpisode.number);
                   }
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors"

@@ -124,7 +124,7 @@ const rateLimit = (maxRequests = 10, windowMs = 60000) => {
   };
 };
 
-// FIXED: Vietnamese diacritics removal for folder names
+// Vietnamese diacritics removal for folder names
 const removeVietnameseDiacritics = (str) => {
   const diacriticsMap = {
     'à': 'a', 'á': 'a', 'ạ': 'a', 'ả': 'a', 'ã': 'a', 'â': 'a', 'ầ': 'a', 'ấ': 'a', 'ậ': 'a', 'ẩ': 'a', 'ẫ': 'a', 'ă': 'a', 'ằ': 'a', 'ắ': 'a', 'ặ': 'a', 'ẳ': 'a', 'ẵ': 'a',
@@ -279,7 +279,7 @@ app.get('/', (req, res) => {
       path: process.env.FFMPEG_PATH || 'system',
       status: 'configured'
     },
-    features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'Watch Progress', 'Database Management', 'ID-Based URL Structure'],
+    features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'Watch Progress', 'Database Management', 'Beautiful URL Structure'],
     endpoints: {
       // Series management
       getAllSeries: 'GET /api/series',
@@ -296,7 +296,7 @@ app.get('/', (req, res) => {
       // Video management
       uploadVideo: 'POST /api/upload-video',
       getVideo: 'GET /api/video/:videoId',
-      getVideoByIdAndEpisode: 'GET /api/videos/:seriesId/:episodeNumber',
+      getVideoBySlugAndEpisode: 'GET /api/videos/:seriesSlug/:episodeNumber',
       getAllVideos: 'GET /api/videos/all',
       deleteVideo: 'DELETE /api/video/:videoId',
       
@@ -1074,23 +1074,47 @@ app.get('/api/video/:videoId', async (req, res) => {
   }
 });
 
-// FIXED: Get videos by series ID and episode number (instead of slug)
-app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
-  const { seriesId, episodeNumber } = req.params;
+// Get videos by series slug and episode number
+app.get('/api/videos/:seriesSlug/:episodeNumber', async (req, res) => {
+  const { seriesSlug, episodeNumber } = req.params;
   
-  console.log(`🔍 Looking for video: series ID "${seriesId}", episode ${episodeNumber}`);
+  console.log(`🔍 Looking for video: series slug "${seriesSlug}", episode ${episodeNumber}`);
 
   try {
-    // Find video by series ID and episode number
-    const videoResult = await pool.query(`
-      SELECT v.*, s.title as series_title_current 
-      FROM videos v 
-      LEFT JOIN series s ON v.series_id = s.id 
-      WHERE v.series_id = $1 AND v.episode_number = $2 AND v.status = $3
-    `, [seriesId, parseInt(episodeNumber), 'completed']);
+    // First, find series by slug
+    const seriesResult = await pool.query('SELECT id, title FROM series');
+    const allSeries = seriesResult.rows;
+    
+    console.log(`📊 Checking ${allSeries.length} series for slug match`);
+    
+    let foundSeries = null;
+    for (const series of allSeries) {
+      const generatedSlug = createSeriesSlug(series.title);
+      console.log(`🔗 Series "${series.title}" → slug "${generatedSlug}"`);
+      
+      if (generatedSlug.toLowerCase() === seriesSlug.toLowerCase()) {
+        foundSeries = series;
+        console.log(`✅ Found matching series: ${series.title} (ID: ${series.id})`);
+        break;
+      }
+    }
+
+    if (!foundSeries) {
+      console.log(`❌ No series found for slug: "${seriesSlug}"`);
+      return res.status(404).json({ 
+        success: false, 
+        error: `Series not found for slug: ${seriesSlug}` 
+      });
+    }
+
+    // Now find video for this series and episode
+    const videoResult = await pool.query(
+      'SELECT * FROM videos WHERE series_id = $1 AND episode_number = $2 AND status = $3',
+      [foundSeries.id, parseInt(episodeNumber), 'completed']
+    );
 
     if (videoResult.rows.length === 0) {
-      console.log(`❌ No video found for series ${seriesId} episode ${episodeNumber}`);
+      console.log(`❌ No video found for series ${foundSeries.id} episode ${episodeNumber}`);
       return res.status(404).json({ 
         success: false, 
         error: 'Video not found or not ready' 
@@ -1100,16 +1124,11 @@ app.get('/api/videos/:seriesId/:episodeNumber', async (req, res) => {
     const video = videoResult.rows[0];
     console.log(`✅ Found video: ${video.title} (ID: ${video.id})`);
 
-    // Create HLS URL using series title slug
-    const seriesTitle = video.series_title || video.series_title_current;
-    let hlsUrl = null;
-    
-    if (seriesTitle) {
-      const seriesSlug = createSeriesSlug(seriesTitle);
-      const episodeFolderName = `tap-${video.episode_number.toString().padStart(2, '0')}`;
-      hlsUrl = `/segments/${seriesSlug}/${episodeFolderName}/playlist.m3u8`;
-      console.log(`🎬 Generated HLS URL: ${hlsUrl}`);
-    }
+    // Create HLS URL using series slug
+    const episodeFolderName = `tap-${video.episode_number.toString().padStart(2, '0')}`;
+    const hlsUrl = `/segments/${seriesSlug}/${episodeFolderName}/playlist.m3u8`;
+
+    console.log(`🎬 Generated HLS URL: ${hlsUrl}`);
 
     res.json({
       success: true,
@@ -1239,10 +1258,10 @@ app.get('/api/health', async (req, res) => {
         uploadDir: UPLOAD_DIR
       },
       urlStructure: {
-        format: 'ID-based URLs',
-        example: '/series/{seriesId}/episode/{episodeNumber}'
+        format: 'Beautiful Vietnamese slug URLs',
+        example: '/series/pham-nhan-tu-tien/tap/1'
       },
-      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'PostgreSQL Storage', 'Watch Progress', 'Rate Limiting', 'Database Management', 'ID-Based URL Structure']
+      features: ['Video Upload', 'FFmpeg HLS Segmentation', 'HLS.js Compatible', 'PostgreSQL Storage', 'Watch Progress', 'Rate Limiting', 'Database Management', 'Beautiful URL Structure']
     });
   } catch (error) {
     res.status(500).json({
@@ -1283,7 +1302,7 @@ app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
     error: 'Route not found',
-    message: 'AnimeStream Video Server - PostgreSQL + FFmpeg HLS + ID-Based URL Structure',
+    message: 'AnimeStream Video Server - PostgreSQL + FFmpeg HLS + Beautiful URL Structure',
     requestedUrl: req.originalUrl,
     method: req.method
   });
@@ -1300,11 +1319,11 @@ app.listen(PORT, () => {
   console.log(`🌐 CORS enabled for: http://localhost:5173`);
   console.log(`🛡️  Rate limiting enabled`);
   console.log(`📡 HLS streaming ready with HLS.js support!`);
-  console.log(`\n🎯 HLS URLs: http://localhost:${PORT}/segments/{series-slug}/tap-{episode}/playlist.m3u8`);
+  console.log(`\n🎯 Beautiful URLs: http://localhost:${PORT}/segments/{series-slug}/tap-{episode}/playlist.m3u8`);
   console.log(`🎬 Browser compatibility: H.264 Baseline + AAC + HLS.js`);
   console.log(`📁 Path mapping: series-slug/tap-XX format for better organization`);
   console.log(`💾 Database management: Series, Episodes, Videos, Progress tracking`);
-  console.log(`🔗 FIXED: ID-based URL structure for better stability`);
+  console.log(`🔗 Beautiful Vietnamese slug URLs: /series/pham-nhan-tu-tien/tap/1`);
 });
 
 // Graceful shutdown
