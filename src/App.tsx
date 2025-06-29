@@ -14,11 +14,11 @@ function App() {
           {/* Trang chủ */}
           <Route path="/" element={<HomePage />} />
           
-          {/* Chi tiết series: /movie/pham-nhan-tu-tien */}
-          <Route path="/movie/:seriesSlug" element={<SeriesDetailPage />} />
+          {/* Chi tiết series: /series/:seriesId */}
+          <Route path="/series/:seriesId" element={<SeriesDetailPage />} />
           
-          {/* Xem episode: /movie/pham-nhan-tu-tien/tap-1 */}
-          <Route path="/movie/:seriesSlug/tap-:episodeNumber" element={<EpisodePlayerPage />} />
+          {/* Xem episode: /series/:seriesId/episode/:episodeNumber */}
+          <Route path="/series/:seriesId/episode/:episodeNumber" element={<EpisodePlayerPage />} />
           
           {/* 404 Page */}
           <Route path="*" element={<NotFoundPage />} />

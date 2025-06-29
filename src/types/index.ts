@@ -79,7 +79,6 @@ export interface Movie {
   episodeCount?: number;
   airDay?: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
   airTime?: string;
-  slug?: string; // URL slug for routing
 }
 
 export interface Genre {

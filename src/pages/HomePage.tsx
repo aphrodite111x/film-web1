@@ -10,7 +10,6 @@ import PaymentModal from '../components/PaymentModal';
 import AdminPanel from '../components/AdminPanel';
 import Footer from '../components/Footer';
 import { Movie, VipPlan } from '../types';
-import { createSlug } from '../utils/slugUtils';
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -51,34 +50,28 @@ const HomePage: React.FC = () => {
 
   // Convert database series to Movie format for compatibility
   const convertDbSeriesToMovies = (dbSeriesData: any[]): Movie[] => {
-    return dbSeriesData.map(series => {
-      const slug = createSlug(series.title);
-      console.log(`🔗 Generated slug for "${series.title}": "${slug}"`);
-      
-      return {
-        id: series.id,
-        title: series.title,
-        titleVietnamese: series.titleVietnamese || series.title,
-        description: series.description || '',
-        year: series.year,
-        duration: series.totalDuration || '24 phút/tập',
-        rating: series.rating,
-        genre: series.genre || [],
-        director: series.director || '',
-        studio: series.studio || '',
-        thumbnail: series.thumbnail || 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg?auto=compress&cs=tinysrgb&w=400',
-        banner: series.banner || 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg?auto=compress&cs=tinysrgb&w=1200',
-        trailer: series.trailer || '',
-        featured: series.featured || false,
-        new: series.new || false,
-        popular: series.popular || false,
-        type: 'series' as const,
-        episodeCount: series.episodeCount || 0,
-        airDay: series.airDay as any,
-        airTime: series.airTime,
-        slug: slug // Add slug for URL
-      };
-    });
+    return dbSeriesData.map(series => ({
+      id: series.id,
+      title: series.title,
+      titleVietnamese: series.titleVietnamese || series.title,
+      description: series.description || '',
+      year: series.year,
+      duration: series.totalDuration || '24 phút/tập',
+      rating: series.rating,
+      genre: series.genre || [],
+      director: series.director || '',
+      studio: series.studio || '',
+      thumbnail: series.thumbnail || 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg?auto=compress&cs=tinysrgb&w=400',
+      banner: series.banner || 'https://images.pexels.com/photos/1181467/pexels-photo-1181467.jpeg?auto=compress&cs=tinysrgb&w=1200',
+      trailer: series.trailer || '',
+      featured: series.featured || false,
+      new: series.new || false,
+      popular: series.popular || false,
+      type: 'series' as const,
+      episodeCount: series.episodeCount || 0,
+      airDay: series.airDay as any,
+      airTime: series.airTime
+    }));
   };
 
   // Use database series instead of static data
@@ -108,18 +101,16 @@ const HomePage: React.FC = () => {
 
   const handlePlayMovie = async (movie: Movie) => {
     if (movie.type === 'series') {
-      const slug = movie.slug || createSlug(movie.title);
-      console.log(`🎬 Playing movie: "${movie.title}" → /movie/${slug}/tap-1`);
+      console.log(`🎬 Playing movie: "${movie.title}" → /series/${movie.id}/episode/1`);
       // Navigate to first episode
-      navigate(`/movie/${slug}/tap-1`);
+      navigate(`/series/${movie.id}/episode/1`);
     }
   };
 
   const handleShowDetails = async (movie: Movie) => {
     if (movie.type === 'series') {
-      const slug = movie.slug || createSlug(movie.title);
-      console.log(`📋 Showing details: "${movie.title}" → /movie/${slug}`);
-      navigate(`/movie/${slug}`);
+      console.log(`📋 Showing details: "${movie.title}" → /series/${movie.id}`);
+      navigate(`/series/${movie.id}`);
     }
   };
 
