@@ -170,8 +170,8 @@ const EpisodePlayerPage: React.FC = () => {
         console.log(`✅ Found episode ${epNum}: "${episode.title}"`);
         setCurrentEpisode(episode);
         
-        // Load video data using series ID and episode number
-        loadVideoData(foundSeries.id, epNum);
+        // FIXED: Load video data using series slug and episode number (not ID)
+        loadVideoData(seriesSlug, epNum);
       } else {
         console.error('❌ API Error:', data.error);
         setError('Không thể tải dữ liệu series từ database');
@@ -184,9 +184,9 @@ const EpisodePlayerPage: React.FC = () => {
     }
   };
 
-  // Load video data using series ID and episode number
-  const loadVideoData = useCallback(async (seriesId: string, epNumber: number) => {
-    const videoKey = `${seriesId}-${epNumber}`;
+  // FIXED: Load video data using series slug and episode number (not ID)
+  const loadVideoData = useCallback(async (slug: string, epNumber: number) => {
+    const videoKey = `${slug}-${epNumber}`;
     
     if (loadedVideoRef.current === videoKey || isLoadingRef.current) {
       return;
@@ -197,10 +197,10 @@ const EpisodePlayerPage: React.FC = () => {
     setLoadError(null);
     
     try {
-      console.log(`🔍 Loading video for series ID "${seriesId}" episode ${epNumber}`);
+      console.log(`🔍 Loading video for series slug "${slug}" episode ${epNumber}`);
       
-      // Use the correct API endpoint that matches server
-      const response = await fetch(`http://localhost:3001/api/videos/${seriesId}/${epNumber}`);
+      // FIXED: Use slug instead of ID to match server endpoint
+      const response = await fetch(`http://localhost:3001/api/videos/${slug}/${epNumber}`);
       const data = await response.json();
       
       console.log('📹 Video API Response:', data);
@@ -336,8 +336,8 @@ const EpisodePlayerPage: React.FC = () => {
       duration: uploadedVideoData.duration,
       status: 'completed'
     });
-    if (series && currentEpisode) {
-      loadedVideoRef.current = `${series.id}-${currentEpisode.number}`;
+    if (seriesSlug && currentEpisode) {
+      loadedVideoRef.current = `${seriesSlug}-${currentEpisode.number}`;
     }
   };
 
@@ -527,8 +527,8 @@ const EpisodePlayerPage: React.FC = () => {
               <button
                 onClick={() => {
                   loadedVideoRef.current = null;
-                  if (series && currentEpisode) {
-                    loadVideoData(series.id, currentEpisode.number);
+                  if (seriesSlug && currentEpisode) {
+                    loadVideoData(seriesSlug, currentEpisode.number);
                   }
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors"
