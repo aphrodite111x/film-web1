@@ -47,6 +47,23 @@ const setupDatabase = async () => {
     await client.connect();
     console.log(`✅ Connected to database '${process.env.DB_NAME}'`);
 
+    // Create users table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        email VARCHAR(255) UNIQUE NOT NULL,
+        username VARCHAR(100) NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        avatar TEXT,
+        is_vip BOOLEAN DEFAULT false,
+        is_admin BOOLEAN DEFAULT false,
+        vip_expiry TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Users table created');
+
     // Create series table
     await client.query(`
       CREATE TABLE IF NOT EXISTS series (
@@ -104,7 +121,7 @@ const setupDatabase = async () => {
     `);
     console.log('✅ Episodes table created');
 
-    // Create videos table (UPDATED with series_title column)
+    // Create videos table
     await client.query(`
       CREATE TABLE IF NOT EXISTS videos (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -118,32 +135,19 @@ const setupDatabase = async () => {
         file_size BIGINT NOT NULL DEFAULT 0,
         video_path TEXT NOT NULL,
         hls_manifest_path TEXT,
+        hls_manifest_path_4k TEXT,
         thumbnail_path TEXT,
         status VARCHAR(20) DEFAULT 'uploading',
         processing_progress INTEGER DEFAULT 0,
         total_segments INTEGER DEFAULT 0,
+        total_segments_4k INTEGER DEFAULT 0,
         series_title VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(series_id, episode_number)
       )
     `);
-    console.log('✅ Videos table created with series_title column');
-
-    // Check if series_title column exists, if not add it
-    await client.query(`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM information_schema.columns
-          WHERE table_name = 'videos' AND column_name = 'series_title'
-        ) THEN
-          ALTER TABLE videos ADD COLUMN series_title VARCHAR(255);
-          RAISE NOTICE 'Added series_title column to videos table';
-        END IF;
-      END $$;
-    `);
-    console.log('✅ Ensured series_title column exists in videos table');
+    console.log('✅ Videos table created with 4K support');
 
     // Create segments table
     await client.query(`
@@ -155,18 +159,21 @@ const setupDatabase = async () => {
         file_path TEXT NOT NULL,
         duration REAL NOT NULL,
         file_size BIGINT NOT NULL,
+        quality VARCHAR(10) DEFAULT '1080p',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(video_id, segment_number)
+        UNIQUE(video_id, segment_number, quality)
       )
     `);
-    console.log('✅ Segments table created');
+    console.log('✅ Segments table created with quality support');
 
     // Create watch progress table
     await client.query(`
       CREATE TABLE IF NOT EXISTS watch_progress (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id VARCHAR(100) NOT NULL,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         video_id UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+        series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+        episode_id UUID REFERENCES episodes(id) ON DELETE CASCADE,
         progress REAL NOT NULL,
         duration REAL NOT NULL,
         percentage REAL NOT NULL,
@@ -176,8 +183,70 @@ const setupDatabase = async () => {
     `);
     console.log('✅ Watch progress table created');
 
+    // Create favorites table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS favorites (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, series_id)
+      )
+    `);
+    console.log('✅ Favorites table created');
+
+    // Create ratings table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ratings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+        episode_id UUID REFERENCES episodes(id) ON DELETE CASCADE,
+        rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, series_id, episode_id)
+      )
+    `);
+    console.log('✅ Ratings table created');
+
+    // Create comments table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS comments (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+        episode_id UUID REFERENCES episodes(id) ON DELETE CASCADE,
+        content TEXT NOT NULL,
+        rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+        likes INTEGER DEFAULT 0,
+        parent_id UUID REFERENCES comments(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Comments table created');
+
+    // Create VIP transactions table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS vip_transactions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        plan_id VARCHAR(50) NOT NULL,
+        amount INTEGER NOT NULL,
+        payment_method VARCHAR(50) NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        transaction_code VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        confirmed_at TIMESTAMP,
+        expires_at TIMESTAMP
+      )
+    `);
+    console.log('✅ VIP transactions table created');
+
     // Create indexes for better performance
     await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
       CREATE INDEX IF NOT EXISTS idx_series_featured ON series(featured);
       CREATE INDEX IF NOT EXISTS idx_series_new ON series(new);
       CREATE INDEX IF NOT EXISTS idx_series_popular ON series(popular);
@@ -187,8 +256,21 @@ const setupDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_videos_series_title ON videos(series_title);
       CREATE INDEX IF NOT EXISTS idx_segments_video_id ON segments(video_id);
       CREATE INDEX IF NOT EXISTS idx_watch_progress_user_video ON watch_progress(user_id, video_id);
+      CREATE INDEX IF NOT EXISTS idx_favorites_user_series ON favorites(user_id, series_id);
+      CREATE INDEX IF NOT EXISTS idx_ratings_user_series ON ratings(user_id, series_id);
+      CREATE INDEX IF NOT EXISTS idx_comments_series ON comments(series_id);
+      CREATE INDEX IF NOT EXISTS idx_comments_episode ON comments(episode_id);
+      CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id);
     `);
     console.log('✅ Database indexes created');
+
+    // Insert default admin user
+    await client.query(`
+      INSERT INTO users (email, username, password_hash, is_admin, is_vip)
+      VALUES ('admin@animestream.com', 'Admin', '$2b$10$dummy.hash.for.demo', true, true)
+      ON CONFLICT (email) DO NOTHING
+    `);
+    console.log('✅ Default admin user created');
 
     await client.end();
     console.log('🎉 Database setup completed successfully!');
